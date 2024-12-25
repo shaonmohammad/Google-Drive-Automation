@@ -14,13 +14,11 @@ class AutomationGUI:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Google Drive Automation")
-        self.root.geometry("600x400")
+        self.root.geometry("800x600")
         
-        # Main frame
         frame = tk.Frame(self.root, padx=10, pady=10)
         frame.pack(fill=tk.BOTH, expand=True)
         
-        # Input fields
         tk.Label(frame, text="Emails per batch:").pack()
         self.emails_per_batch = tk.Entry(frame)
         self.emails_per_batch.pack()
@@ -30,21 +28,42 @@ class AutomationGUI:
         self.runs_per_email.pack()
         
         self.select_button = tk.Button(frame, text="Select File", command=self.select_file, width=20)
-        self.select_button.pack(pady=10)
+        self.select_button.pack(pady=5)
         
-        # Log display
-        self.log_area = scrolledtext.ScrolledText(frame, height=10)
+        self.admin_button = tk.Button(frame, text="Select Admin Emails", command=self.select_admin_file, width=20)
+        self.admin_button.pack(pady=5)
+        
+        self.client_button = tk.Button(frame, text="Select Client Emails", command=self.select_client_file, width=20)
+        self.client_button.pack(pady=5)
+        
+        self.log_area = scrolledtext.ScrolledText(frame, height=15)
         self.log_area.pack(fill=tk.BOTH, expand=True, pady=10)
         
-        # Control buttons
         self.start_btn = tk.Button(frame, text="Start", command=self.start_automation)
         self.start_btn.pack(pady=5)
 
     def select_file(self):
-        input_file = filedialog.askopenfilename(title="Select Input File", filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")])
-        file_name = os.path.basename(input_file)
-        self.file_name = file_name
-        return file_name
+        self.file_name = os.path.basename(filedialog.askopenfilename(
+            title="Select Input File",
+            filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")]
+        ))
+        return self.file_name
+
+    def select_admin_file(self):
+        self.admin_file = filedialog.askopenfilename(
+            title="Select Admin Emails File",
+            filetypes=[("Text Files", "*.txt")]
+        )
+        if self.admin_file:
+            self.log_message(f"Selected admin file: {os.path.basename(self.admin_file)}")
+
+    def select_client_file(self):
+        self.client_file = filedialog.askopenfilename(
+            title="Select Client Emails File",
+            filetypes=[("Text Files", "*.txt")]
+        )
+        if self.client_file:
+            self.log_message(f"Selected client file: {os.path.basename(self.client_file)}")
 
     def log_message(self, msg):
         self.log_area.insert(tk.END, f"{msg}\n")
@@ -52,22 +71,27 @@ class AutomationGUI:
 
     def start_automation(self):
         try:
+            if not hasattr(self, 'admin_file') or not hasattr(self, 'client_file') or not hasattr(self, 'file_name'):
+                self.log_message("Please select all required files")
+                return
+                
             emails = int(self.emails_per_batch.get())
             runs = int(self.runs_per_email.get())
-            file_name = self.file_name
 
             self.start_btn.config(state=tk.DISABLED)
-            thread = threading.Thread(target=self.run_automation, args=(emails, runs, file_name))
+            thread = threading.Thread(target=self.run_automation, args=(emails, runs))
             thread.daemon = True
             thread.start()
             
         except ValueError:
             self.log_message("Please enter valid numbers")
             
-    def run_automation(self, emails_per_batch, runs_per_email, file_name):
+    def run_automation(self, emails_per_batch, runs_per_email):
         try:
             automation = GoogleDriveAutomation(
-                file_path=file_name,
+                file_path=self.file_name,
+                admin_file=self.admin_file,
+                client_file=self.client_file,
                 emails_per_batch=emails_per_batch,
                 runs_per_email=runs_per_email,
                 logger=self
@@ -79,13 +103,21 @@ class AutomationGUI:
             self.start_btn.config(state=tk.NORMAL)
 
 class GoogleDriveAutomation:
-    def __init__(self, file_path, emails_per_batch, runs_per_email, logger):
+    def __init__(self, file_path, admin_file, client_file, emails_per_batch, runs_per_email, logger):
         self.file_path = file_path
+        self.admin_file = admin_file
+        self.client_file = client_file
         self.emails_per_batch = emails_per_batch
         self.runs_per_email = runs_per_email
         self.logger = logger
-        self.failed_emails = set()  # Track failed emails
+        self.failed_emails = set()
+        # Add output directory path
+        self.output_dir = os.path.dirname(self.client_file)
         self.setup_driver()
+        
+        # Register exit handler
+        import atexit
+        atexit.register(self.save_failed_emails)
 
     def setup_driver(self):
         options = webdriver.ChromeOptions()
@@ -97,17 +129,18 @@ class GoogleDriveAutomation:
 
     def save_failed_emails(self):
         if self.failed_emails:
-            with open("failed_mail.txt", "w") as f:
+            failed_file = os.path.join(self.output_dir, "failed_mail.txt")
+            with open(failed_file, "w") as f:
                 for email in self.failed_emails:
                     f.write(f"{email}\n")
-            self.logger.log_message(f"Failed emails saved to failed_mail.txt")
+            # self.logger.log_message(f"Failed emails saved to: {failed_file}")
 
     def load_credentials(self):
-        with open("admin_email.txt", "r") as f:
+        with open(self.admin_file, "r") as f:
             return [line.strip().split(":") for line in f.readlines()]
 
     def load_client_emails(self):
-        with open("client_email.txt", "r") as f:
+        with open(self.client_file, "r") as f:
             return [line.strip() for line in f.readlines()]
     
     def login(self, email, password):
@@ -175,6 +208,7 @@ class GoogleDriveAutomation:
             
             for email in batch_emails:
                 self.driver.switch_to.active_element.send_keys(email)
+                time.sleep(2)
                 self.driver.switch_to.active_element.send_keys(Keys.ENTER)
                 time.sleep(0.5)
             self.logger.log_message(f"Entered email")
@@ -238,7 +272,7 @@ class GoogleDriveAutomation:
                             
                         batch = client_emails[:self.emails_per_batch]
                         if self.upload_and_share(batch):
-                            with open("client_email.txt", "w") as f:
+                            with open(self.client_file, "w") as f:
                                 f.writelines(f"{e}\n" for e in client_emails[self.emails_per_batch:])
                         
                         time.sleep(1)
@@ -249,7 +283,7 @@ class GoogleDriveAutomation:
                 self.logger.log_message("Completed all credentials. Running again for remaining client emails...")
                 
         finally:
-            self.save_failed_emails()  # Save failed emails before quitting
+            self.save_failed_emails()
             self.driver.quit()
 
 if __name__ == "__main__":
