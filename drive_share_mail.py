@@ -42,6 +42,12 @@ class AutomationGUI:
         self.start_btn = tk.Button(frame, text="Start", command=self.start_automation)
         self.start_btn.pack(pady=5)
 
+        footer_frame = tk.Frame(self.root)
+        footer_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=5)
+
+        footer_label = tk.Label(footer_frame, text="Developed By Fozle@01572576465", font=("Arial", 9), fg="gray")
+        footer_label.pack()
+
     def select_file(self):
         self.file_name = os.path.basename(filedialog.askopenfilename(
             title="Select Input File",
@@ -98,7 +104,7 @@ class AutomationGUI:
             )
             automation.run()
         except Exception as e:
-            self.log_message(f"Error: {str(e)}")
+            self.log_message(f"Failed the process.Your internet connection is not Stable.Please Try Again!")
         finally:
             self.start_btn.config(state=tk.NORMAL)
 
@@ -121,6 +127,7 @@ class GoogleDriveAutomation:
 
     def setup_driver(self):
         options = webdriver.ChromeOptions()
+        # options.add_argument('headless')
         options.add_argument('--start-maximized')
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
@@ -146,7 +153,7 @@ class GoogleDriveAutomation:
     def login(self, email, password):
         try:
             self.driver.get("https://accounts.google.com/v3/signin/identifier?continue=https%3A%2F%2Fdrive.google.com%2Fdrive%2F%3Fdmr%3D1%26ec%3Dwgc-drive-hero-goto&followup=https%3A%2F%2Fdrive.google.com%2Fdrive%2F%3Fdmr%3D1%26ec%3Dwgc-drive-hero-goto&ifkv=AcMMx-fKwqE5UVY-hlsXuXKxoofz3reh-BGOSm7tg2YgKZfjbLQm8D_HXc8U4Cie50Vrn1XwKRaqMg&osid=1&passive=1209600&service=wise&flowName=GlifWebSignIn&flowEntry=ServiceLogin&dsh=S906190291%3A1733673434469058&ddm=1")
-            
+            self.driver.set_window_size(500, 500)
             email_input = self.wait.until(EC.presence_of_element_located((By.ID, "identifierId")))
             email_input.send_keys(email, Keys.ENTER)
             
@@ -205,13 +212,45 @@ class GoogleDriveAutomation:
             )
             self.driver.switch_to.frame(iframe)
             time.sleep(2)
+
+            try:
+                 # Wait for and click the Restricted button
+                restricted_button = WebDriverWait(self.driver, 10).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[aria-label="Restricted change link"]'))
+                )
+                time.sleep(1)
+                restricted_button.click()
+                
+                # Wait for and click the "Anyone with the link" option
+                anyone_option = WebDriverWait(self.driver, 10).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, 'li[role="menuitemradio"][data-value="4"]'))
+                )
+                anyone_option.click()
+                time.sleep(4)
+            except Exception as e:
+                self.logger.log_message(f"Already has permission to access this file")
+                print("Already has permission to access this file",e)
             
+            try:
+                # First wait for element to be present
+                input_element = WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, 'input[aria-label="Add people, groups, and calendar events"]'))
+                )
+                
+                # Approach 1: Using JavaScript to click
+                self.driver.execute_script("arguments[0].click();", input_element)
+                time.sleep(1)
+                
+            except Exception as e:
+                print("Unable to click on input field",e)
+                
+
             for email in batch_emails:
                 self.driver.switch_to.active_element.send_keys(email)
                 time.sleep(2)
                 self.driver.switch_to.active_element.send_keys(Keys.ENTER)
                 time.sleep(0.5)
-            self.logger.log_message(f"Entered email")
+            self.logger.log_message(f"Entered email: {batch_emails}")
             
             send_button = self.driver.find_element(By.CLASS_NAME, "UywwFc-LgbsSe")
             self.driver.execute_script("arguments[0].click();", send_button)
@@ -241,9 +280,9 @@ class GoogleDriveAutomation:
                         continue
                     
                     new_btn = self.wait.until(EC.element_to_be_clickable(
-                        (By.XPATH, "//button[.//span[text()='New']]")))
+                        (By.CSS_SELECTOR, "button.brbsPe span.jYPt8c")))
                     new_btn.click()
-                    
+                            
                     upload_btn = self.wait.until(EC.element_to_be_clickable(
                         (By.XPATH, "//div[text()='File upload']")))
                     upload_btn.click()
